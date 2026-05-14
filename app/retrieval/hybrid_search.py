@@ -1,61 +1,54 @@
 import json
-import faiss
 from pathlib import Path
-from sentence_transformers import SentenceTransformer
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 CATALOG_PATH = BASE_DIR / "data" / "catalog.json"
-INDEX_PATH = BASE_DIR / "data" / "catalog.index"
-
-model = SentenceTransformer("all-MiniLM-L6-v2")
 
 with open(CATALOG_PATH, "r", encoding="utf-8") as f:
     catalog = json.load(f)
 
-index = faiss.read_index(str(INDEX_PATH))
 
+def search_catalog(intent, top_k=5):
 
-def search_catalog(intent, top_k=10):
-
-    query = f"""
-    {intent.get('role', '')}
-    {intent.get('seniority', '')}
-    """
-
-    query_embedding = model.encode([query])
-
-    distances, indices = index.search(query_embedding, top_k)
+    role = intent.get("role", "").lower()
+    seniority = intent.get("seniority", "").lower()
 
     results = []
 
-    seniority = intent.get("seniority", "").lower()
+    for item in catalog:
 
-    for idx in indices[0]:
+        text = f"""
+        {item.get('name', '')}
+        {item.get('description', '')}
+        {' '.join(item.get('job_levels', []))}
+        {' '.join(item.get('keys', []))}
+        """.lower()
 
-        if idx >= len(catalog):
-            continue
+        score = 0
 
-        item = catalog[idx]
+        # Role matching
+        role_words = role.split()
 
-        job_levels = " ".join(
-            item.get("job_levels", [])
-        ).lower()
+        for word in role_words:
+            if word in text:
+                score += 2
 
-        # Seniority filtering
-        if seniority == "senior":
-    
-          blocked_levels = [
-        "entry-level",
-        "graduate",
-        "entry level",
-        "junior"
-    ]
+        # Seniority matching
+        if seniority:
+            if seniority in text:
+                score += 3
 
-          if any(level in job_levels for level in blocked_levels):
-            continue
+        if score > 0:
+            results.append((score, item))
 
-        results.append({
+    results.sort(key=lambda x: x[0], reverse=True)
+
+    final_results = []
+
+    for _, item in results[:top_k]:
+
+        final_results.append({
             "name": item["name"],
             "url": item["link"],
             "test_type": (
@@ -65,4 +58,4 @@ def search_catalog(intent, top_k=10):
             )
         })
 
-    return results
+    return final_results
